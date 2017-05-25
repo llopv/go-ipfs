@@ -5,6 +5,9 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"io/ioutil"
+	"net/http"
+	"encoding/json"
 
 	path "github.com/ipfs/go-ipfs/path"
 
@@ -57,6 +60,41 @@ func (r *DNSResolver) resolveOnce(ctx context.Context, name string) (path.Path, 
 		return "", errors.New("not a valid domain name")
 	}
 	log.Infof("DNSResolver resolving %s", domain)
+
+	if strings.HasSuffix(domain, ".bit") {
+		domain := strings.TrimSuffix(domain, ".bit")
+		res, err := http.Get("http://localhost:8336/rest/name/d/" + domain + ".json")
+		if err != nil {
+			return "", errors.New("Namecoin not connected")
+		}
+		body, err := ioutil.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			return "", errors.New("Namecoin not responding")
+		}
+
+		type Data struct {
+				Value   string
+		}
+		type Value struct {
+				Ipfs   string
+		}
+    var m Data
+		var n Value
+
+    err = json.Unmarshal([]byte(body), &m)
+		err = json.Unmarshal([]byte(m.Value), &n)
+		if err != nil {
+			return "", errors.New("Domain name has no ipfs registry")
+		}
+		var p = path.FromString(n.Ipfs)
+
+		if len(segments) > 1 {
+			return path.FromSegments("", strings.TrimRight(p.String(), "/"), segments[1])
+		} else {
+			return p, nil
+		}
+	}
 
 	rootChan := make(chan lookupRes, 1)
 	go workDomain(r, domain, rootChan)
